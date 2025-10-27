@@ -9,6 +9,8 @@ load_dotenv(BASE_DIR / ".env")
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me")
 DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() == "true"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "*").split(",")
+DEBUG = True
+
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -82,7 +84,8 @@ TIME_ZONE = "Asia/Almaty"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
