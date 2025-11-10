@@ -4,17 +4,34 @@ from django.db.models import Count
 from .models import Course, Lesson, Enrollment
 from .serializers import CourseSerializer, LessonSerializer, EnrollmentSerializer
 from .permissions import IsOwnerOrAdminForCourses
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+from rest_framework import generics
+from .models import Course
+from .serializers import CourseSerializer
+from django.conf import settings
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+@method_decorator(cache_page(60 * 5, cache="default"), name="dispatch")
+class CourseListView(generics.ListAPIView):
+    queryset = Course.objects.all()
+    serializer_class = CourseSerializer
+
 
 class IsAuthenticatedOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         return True if request.method in permissions.SAFE_METHODS else request.user.is_authenticated
 
+
 class CourseViewSet(viewsets.ModelViewSet):
     serializer_class = CourseSerializer
     permission_classes = [IsAuthenticatedOrReadOnly, IsOwnerOrAdminForCourses]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ["title","description"]
-    ordering_fields = ["created_at","price"]
+    search_fields = ["title", "description"]
+    ordering_fields = ["created_at", "price"]
 
     def get_queryset(self):
         qs = Course.objects.all().annotate(lessons_count=Count("lessons"))
@@ -25,7 +42,7 @@ class CourseViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         u = self.request.user
-        if u.role not in ("admin","instructor"):
+        if u.role not in ("admin", "instructor"):
             raise PermissionError("Only instructors/admin can create courses.")
         serializer.save(owner=u)
 
@@ -37,6 +54,7 @@ class CourseViewSet(viewsets.ModelViewSet):
         else:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("Only owner/admin can update course.")
+
 
 class LessonViewSet(viewsets.ModelViewSet):
     serializer_class = LessonSerializer
@@ -52,31 +70,32 @@ class LessonViewSet(viewsets.ModelViewSet):
     def create(self, request, *a, **kw):
         course_id = request.data.get("course")
         if not course_id:
-            return Response({"detail":"course is required"}, status=400)
+            return Response({"detail": "course is required"}, status=400)
         from .models import Course
         course = Course.objects.filter(id=course_id).first()
-        if not course: return Response({"detail":"Course not found"}, status=404)
+        if not course: return Response({"detail": "Course not found"}, status=404)
         u = request.user
-        if not u.is_authenticated: return Response({"detail":"Auth required"}, status=401)
+        if not u.is_authenticated: return Response({"detail": "Auth required"}, status=401)
         if u.role != "admin" and course.owner_id != u.id:
-            return Response({"detail":"Only owner/admin can add lessons"}, status=403)
+            return Response({"detail": "Only owner/admin can add lessons"}, status=403)
         return super().create(request, *a, **kw)
 
     def update(self, request, *a, **kw):
         obj = self.get_object()
         u = request.user
-        if not u.is_authenticated: return Response({"detail":"Auth required"}, status=401)
+        if not u.is_authenticated: return Response({"detail": "Auth required"}, status=401)
         if u.role != "admin" and obj.course.owner_id != u.id:
-            return Response({"detail":"Only owner/admin can update lessons"}, status=403)
+            return Response({"detail": "Only owner/admin can update lessons"}, status=403)
         return super().update(request, *a, **kw)
 
     def destroy(self, request, *a, **kw):
         obj = self.get_object()
         u = request.user
-        if not u.is_authenticated: return Response({"detail":"Auth required"}, status=401)
+        if not u.is_authenticated: return Response({"detail": "Auth required"}, status=401)
         if u.role != "admin" and obj.course.owner_id != u.id:
-            return Response({"detail":"Only owner/admin can delete lessons"}, status=403)
+            return Response({"detail": "Only owner/admin can delete lessons"}, status=403)
         return super().destroy(request, *a, **kw)
+
 
 class EnrollmentViewSet(viewsets.GenericViewSet,
                         permissions.BasePermission.__mro__[0].__bases__[0],
@@ -93,7 +112,7 @@ class EnrollmentViewSet(viewsets.GenericViewSet,
         qs = Enrollment.objects.select_related("course")
         if not u.is_authenticated: return qs.none()
         if u.role == "student": return qs.filter(student_id=u.id)
-        if u.role in ("admin","instructor"): return qs
+        if u.role in ("admin", "instructor"): return qs
         return qs.none()
 
     # mixins вручную: create / destroy / list
@@ -118,8 +137,8 @@ class EnrollmentViewSet(viewsets.GenericViewSet,
         try:
             obj = Enrollment.objects.get(id=pk)
         except Enrollment.DoesNotExist:
-            return self.Response({"detail":"Not found"}, status=404)
+            return self.Response({"detail": "Not found"}, status=404)
         if u.role != "admin" and obj.student_id != u.id:
-            return self.Response({"detail":"Forbidden"}, status=403)
+            return self.Response({"detail": "Forbidden"}, status=403)
         obj.delete()
         return self.Response(status=204)

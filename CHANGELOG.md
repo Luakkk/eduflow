@@ -4,8 +4,23 @@ All notable changes to the EduFlow project will be documented in this file.
 The format is based on Keep a Changelog,
 and this project adheres to Semantic Versioning.
 
-[Unreleased]
-[1.1.0] - 2025-10-24
+[1.0.3] - 2025-11-10
+Added
+-Redis caching layer for read-only API endpoints
+-Cache configuration using django-redis backend
+-Response caching via `cache_page` decorator (5-minute TTL)
+
+Changed
+-Reduced database load on frequently accessed GET requests
+-Updated docker-compose to ensure Redis service availability
+
+Fixed
+-Resolved issue where cache did not persist due to missing cache backend configuration
+
+Changed - 2025-10-28
+-design admin panel
+
+[1.0.2] - 2025-10-24
 Added
 -Docker containerization for simplified deployment
 -PostgreSQL database support replacing SQLite for production readiness

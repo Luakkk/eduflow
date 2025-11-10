@@ -40,7 +40,9 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "common.logging.RequestIDMiddleware",    # X-Request-ID + тайминг
-    "common.middleware.AccessLogMiddleware", # JSON access-логи
+    "common.middleware.AccessLogMiddleware",  # JSON access-логи
+    'django.middleware.cache.UpdateCacheMiddleware',
+    'django.middleware.cache.FetchFromCacheMiddleware',
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -78,6 +80,31 @@ DATABASES = {
         'PORT': os.getenv('POSTGRES_PORT', '5432'),
     }
 }
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/1")
+
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
+    }
+}
+
+ENABLE_CACHE = os.getenv("ENABLE_CACHE", "False").lower() == "true"
+
+SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+SESSION_CACHE_ALIAS = "default"
+
+
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/0")
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Asia/Almaty'
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Asia/Almaty"
@@ -122,3 +149,9 @@ SPECTACULAR_SETTINGS = {
 # Логгер: структурный JSON + уровни для ошибок
 from common.logging import json_logging_config
 LOGGING = json_logging_config(debug=DEBUG)
+
+
+LOGGING["loggers"]["django.cache"] = {
+    "handlers": ["console"],
+    "level": "DEBUG",
+}

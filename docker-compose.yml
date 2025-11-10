@@ -7,13 +7,16 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DEBUG = os.getenv("DEBUG", "True") == "True"
+      - DEBUG=True
       - DJANGO_SETTINGS_MODULE=config.settings
+    env_file:
+      - .env
     depends_on:
       - db
+      - redis
 
   db:
-    image: postgres:15  # Используем версию 15 или выше
+    image: postgres:15
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
@@ -22,6 +25,26 @@ services:
       - POSTGRES_PASSWORD=postgres
     ports:
       - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: always
+    ports:
+      - "6379:6379"
+
+  celery:
+    build: .
+    command: celery -A config worker -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings
+    restart: always
+
 
 volumes:
   postgres_data:
