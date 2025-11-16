@@ -3,6 +3,8 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.timezone import now
 
 class JsonFormatter(logging.Formatter):
+    SENSITIVE_KEYS = {"password", "token", "access", "refresh", "authorization"}
+
     def format(self, record):
         base = {
             "timestamp": now().isoformat(),
@@ -10,13 +12,28 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+
         if hasattr(record, "request_id"):
             base["request_id"] = record.request_id
-        if hasattr(record, "extra"):
-            base["extra"] = record.extra
+
+        # Sanitize and attach extra fields if present
+        extra = getattr(record, "extra", None)
+        if isinstance(extra, dict):
+            sanitized = {}
+            for key, value in extra.items():
+                if isinstance(key, str) and key.lower() in self.SENSITIVE_KEYS:
+                    sanitized[key] = "***"
+                else:
+                    sanitized[key] = value
+            base["extra"] = sanitized
+        elif extra is not None:
+            base["extra"] = extra
+
         if record.exc_info:
             base["exc_info"] = self.formatException(record.exc_info)
+
         return json.dumps(base, ensure_ascii=False)
+
 
 class RequestIDMiddleware(MiddlewareMixin):
     def process_request(self, request):

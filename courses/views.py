@@ -128,23 +128,55 @@ class CourseViewSet(viewsets.ModelViewSet):
         # Invalidate cache after creation
         self._invalidate_course_cache(serializer.instance)
 
+        # Audit log
+        logger.info(
+            "Course created",
+            extra={
+                "course_id": serializer.instance.id,
+                "owner_id": user.id,
+                "role": role,
+            },
+        )
+
     def perform_update(self, serializer):
         """
         Update a course.
         Permissions handled by CoursePermissions.
         """
+        user = self.request.user
         serializer.save()
 
         # Invalidate cache after update
         self._invalidate_course_cache(serializer.instance)
+
+        # Audit log
+        logger.info(
+            "Course updated",
+            extra={
+                "course_id": serializer.instance.id,
+                "updated_by": getattr(user, "id", None),
+            },
+        )
 
     def perform_destroy(self, instance):
         """
         Delete a course.
         Invalidate cache before deletion.
         """
+        user = self.request.user
+        course_id = instance.id
+
         self._invalidate_course_cache(instance)
         instance.delete()
+
+        # Audit log
+        logger.info(
+            "Course deleted",
+            extra={
+                "course_id": course_id,
+                "deleted_by": getattr(user, "id", None),
+            },
+        )
 
 
 
@@ -294,6 +326,16 @@ class EnrollmentViewSet(
         except Exception as e:
             logger.error("Failed to enqueue send_enrollment_email: %s", e)
 
+        # Audit log
+        logger.info(
+            "Enrollment created",
+            extra={
+                "enrollment_id": enrollment.id,
+                "student_id": user.id,
+                "course_id": enrollment.course_id,
+            },
+        )
+
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request, *args, **kwargs):
@@ -302,11 +344,25 @@ class EnrollmentViewSet(
 
         Only an admin or the student who owns the enrollment can perform this action.
         """
-        user = request.user
+        user = self.request.user
         instance = self.get_object()
 
         if getattr(user, "role", None) != "admin" and instance.student_id != user.id:
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
+        enrollment_id = instance.id
+        student_id = instance.student_id
+
         self.perform_destroy(instance)
+
+        # Audit log
+        logger.info(
+            "Enrollment deleted",
+            extra={
+                "enrollment_id": enrollment_id,
+                "student_id": student_id,
+                "performed_by": getattr(user, "id", None),
+            },
+        )
+
         return Response(status=status.HTTP_204_NO_CONTENT)

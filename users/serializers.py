@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.core.validators import validate_email
 from .models import User
+import re
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -39,11 +40,24 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate_username(self, value: str) -> str:
         """
-        Basic username validation. You can extend this if needed.
+        Basic username validation:
+        - strip surrounding spaces
+        - enforce minimal length
+        - restrict allowed characters
         """
         v = value.strip()
+
         if len(v) < 3:
-            raise serializers.ValidationError("Username must be at least 3 characters long.")
+            raise serializers.ValidationError(
+                "Username must be at least 3 characters long."
+            )
+
+        # Allow only letters, digits, underscores and dots
+        if not re.match(r"^[A-Za-z0-9_.]+$", v):
+            raise serializers.ValidationError(
+                "Username may contain only letters, digits, underscores and dots."
+            )
+
         return v
 
     def validate_password(self, value: str) -> str:
