@@ -1,17 +1,41 @@
-.venv/
+# Python
 __pycache__/
-*.pyc
-db.sqlite3
-.env
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+dist/
+build/
+
+# Django
+staticfiles/
+media/
+*.log
+
+# Virtual env
 .venv/
-__pycache__/
+venv/
+ENV/
+
+# SQLite
+*.sqlite3
 db.sqlite3
-.env
-.venv/
-__pycache__/
-db.sqlite3
-.env
-.venv/
-__pycache__/
-db.sqlite3
-.env
+
+# Redis / Celery
+celerybeat-schedule
+celerybeat.pid
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# MacOS
+.DS_Store
+
+# Docker
+*.pid
+
+# Cache
+.cache/
