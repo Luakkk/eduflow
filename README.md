@@ -1,96 +1,247 @@
 
-# 🎓 **EduFlow – Highload Backend for Online Learning Platform**
+# 🎓 EduFlow — Highload Backend for Online Learning Platform
 
-![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
-![Django](https://img.shields.io/badge/Django-5.0-darkgreen?logo=django)
-![DRF](https://img.shields.io/badge/DRF-REST%20Framework-red)
-![Postgres](https://img.shields.io/badge/Postgres-15-blue?logo=postgresql)
-![Redis](https://img.shields.io/badge/Redis-7.0-red?logo=redis)
-![Celery](https://img.shields.io/badge/Celery-worker-green?logo=celery)
-![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)
+EduFlow is a backend for an online learning platform, built as the final project for the **Highload Backend** course.
 
-EduFlow is a highload-ready backend system for an online courses platform.
-It demonstrates production-level architecture using:
+The project demonstrates:
 
-* Django + DRF
-* Role-based access control (`admin / instructor / student`)
-* JWT authentication
-* Advanced validation + RFC7807 error format
-* JSON structured logging
-* Redis caching
-* Celery background tasks
-* Swagger / OpenAPI documentation
-* Docker-Compose orchestration (web + db + redis + worker)
-
-This project is built as a final assignment for the **Highload Backend course**.
+- **Django + DRF** for REST API.
+- **JWT authentication** and user roles.
+- **RBAC** (role-based access control).
+- **Validated CRUD endpoints**.
+- **Structured JSON logging**.
+- **Redis cache** for popular read requests.
+- **Celery tasks** for background processing.
+- **Swagger / OpenAPI** documentation.
+- Deployment via **Docker Compose** (`web + db + redis + celery`).
 
 ---
 
-# ⚡️ **Features Overview**
+## 📦 Core Functionality
 
-## 🔐 Authentication & Roles
+### 👤 Users & Roles
 
-* JWT (access + refresh tokens)
-* Custom User model with roles:
+Custom `User` model based on `AbstractUser`:
 
-  * **Admin** — full access
-  * **Instructor** — create/manage own courses
-  * **Student** — enroll & browse
+- Fields: `username`, `email`, `role` + standard Django fields.
+- Roles:
+  - `admin`
+  - `instructor`
+  - `student`
 
-## 📚 Courses & Lessons
+Main auth endpoints:
 
-* CRUD for Courses
-* CRUD for Lessons
-* Permissions enforced at both:
+- `POST /api/v1/auth/register/` — user registration.
+- `POST /api/v1/auth/login/` — obtain JWT pair (access + refresh).
+- `POST /api/v1/auth/refresh/` — refresh access token.
+- `GET  /api/v1/auth/me/` — get current user profile.
 
-  * View level
-  * Object level (owner/admin only)
+Role behavior:
 
-## 🎓 Enrollments
+- **Admin** — full access to all courses, lessons, enrollments.
+- **Instructor** — creates and manages **only their own** courses and lessons.
+- **Student** — can browse published courses and enroll into them.
 
-* Students can enroll/unenroll
-* Instructors/admin see all enrollments
-* Validation prevents duplicate enrollments
+Validation:
 
-## 🔥 Highload Components
-
-* Redis caching
-* Celery distributed task queue
-* Structured JSON logs
-* Request ID correlation
-* Cache invalidation on writes
-* Redis SETNX idempotency patterns
-
-## 📘 Documentation
-
-* OpenAPI schema – `/api/schema/`
-* Swagger UI – `/api/docs/`
+- `email` is validated for format and uniqueness (case-insensitive).
+- `username` must be at least 3 characters long.
+- `password` is validated via Django’s password validators.
 
 ---
 
-# 🧱 **Tech Stack**
+### 📚 Courses & Lessons
 
-| Layer            | Technology        |
-| ---------------- | ----------------- |
-| Backend          | Django 5 + DRF    |
-| Auth             | SimpleJWT         |
-| Database         | PostgreSQL        |
-| Cache / Queue    | Redis             |
-| Background Tasks | Celery            |
-| API Docs         | drf-spectacular   |
-| Logging          | JSON + Request ID |
-| Containerization | Docker / Compose  |
+Simplified models:
+
+- `Course` — a course (`owner`, `title`, `description`, `price`, `is_published`, etc.).
+- `Lesson` — a lesson belonging to a course.
+
+Endpoints:
+
+- Public course list (read-only, can be cached):
+
+  - `GET /api/v1/courses-public/` → `CourseListView`
+
+- Main courses CRUD (`CourseViewSet`):
+
+  - `GET    /api/v1/courses/` — list courses  
+    (students/anonymous see only published ones).
+  - `POST   /api/v1/courses/` — create a course (only `admin` or `instructor`).
+  - `GET    /api/v1/courses/<id>/` — retrieve course details (cached for 5 minutes).
+  - `PUT    /api/v1/courses/<id>/` — full update.
+  - `PATCH  /api/v1/courses/<id>/` — partial update.
+  - `DELETE /api/v1/courses/<id>/` — delete a course.
+
+- Lessons CRUD (`LessonViewSet`):
+
+  - `GET    /api/v1/lessons/` — list lessons.
+  - `POST   /api/v1/lessons/` — create a lesson  
+    (only course owner or `admin`).
+  - `PUT    /api/v1/lessons/<id>/`
+  - `PATCH  /api/v1/lessons/<id>/`
+  - `DELETE /api/v1/lessons/<id>/`
+
+Access rules:
+
+- Anonymous users & students:
+  - see only lessons of courses where `course.is_published = True`.
+- Instructors & admins:
+  - can manage lessons **only in their own** courses  
+    (except admin, who can manage everything).
 
 ---
 
-# 🚀 **Local Development Setup**
+### 🎓 Course Enrollments
 
-### 1. Create virtual environment
+`Enrollment` model links:
+
+- `student` (user),
+- `course`.
+
+Endpoints (`EnrollmentViewSet`):
+
+- `GET    /api/v1/enrollments/`:
+  - students see **only their own** enrollments,
+  - `instructor` and `admin` see **all** enrollments.
+- `POST   /api/v1/enrollments/`:
+  - only users with role `student` can enroll,
+  - `student` is taken from `request.user`.
+- `DELETE /api/v1/enrollments/<id>/`:
+  - can be deleted by:
+    - `admin`, or
+    - the student who owns this enrollment.
+
+On successful enrollment:
+
+- a Celery task `send_enrollment_email(enrollment.id)` is triggered,
+- the task is idempotent (re-run with the same `enrollment_id` is ignored).
+
+---
+
+### 🧊 Caching (Redis)
+
+Django cache is configured with Redis backend.
+
+- Public courses list:
+  - `CourseListView` is wrapped with `@cache_page(60 * 5, cache="default")`.
+  - Endpoint: `GET /api/v1/courses-public/`.
+
+- Course detail:
+  - `CourseViewSet.retrieve()`:
+    - reads/writes data to cache under key `course:{id}`,
+    - cache TTL is 5 minutes.
+
+Cache invalidation:
+
+- `_invalidate_course_cache(course)` method in `CourseViewSet`:
+  - removes:
+    - `courses:list` (reserved key for lists, if used),
+    - `course:{id}` — for course detail.
+- Called after `create`, `update`, and `delete` on a course.
+
+Cache toggle:
+
+- Controlled via `ENABLE_CACHE` in `.env`:
+  - `ENABLE_CACHE=True` — cache is used.
+  - `ENABLE_CACHE=False` — views behave like regular DRF views (no caching).
+
+---
+
+### 🧵 Background Tasks (Celery)
+
+Celery is configured with Redis as broker and result backend.
+
+Main tasks in `common/tasks.py`:
+
+- `send_enrollment_email(enrollment_id)`:
+
+  - fetches `Enrollment` by `id`;
+  - provides idempotency via a Redis flag:
+
+    ```python
+    key = f"task:send_email:{enrollment_id}"
+    if not cache.add(key, "1", timeout=3600):
+        # Task was already processed for this enrollment_id
+        return
+    ```
+
+  - logs “email sending” (can be replaced with real `send_mail` if needed).
+
+- `generate_daily_report()`:
+
+  - counts `Course.objects.count()` and `Enrollment.objects.count()`,
+  - logs a simple daily report.
+
+- `cleanup_abandoned_enrollments()`:
+
+  - demo task for cleaning “abandoned” enrollments,
+  - currently just logs execution (can be extended with real cleanup logic).
+
+Celery runs as a separate `celery` service in `docker-compose.yml` and shares `.env` configuration with Django.
+
+---
+
+### 📜 Logging (JSON + Request ID)
+
+Structured logging is configured in `common/logging.py` and `common/middleware.py`.
+
+- `JsonFormatter`:
+
+  - outputs logs in JSON with fields:
+    - `timestamp`
+    - `level`
+    - `logger`
+    - `message`
+    - `request_id`
+    - `extra`
+    - stack trace for errors.
+
+- `RequestIDMiddleware`:
+
+  - creates `request.id` (UUID) for each request,
+  - measures processing time (`duration_ms`),
+  - adds headers:
+    - `X-Request-ID`
+    - `X-Response-Time-ms`.
+
+- `AccessLogMiddleware`:
+
+  - logs access events using the `app.access` logger:
+    - HTTP method, URL, status, `user_id`, `duration_ms`, `request_id`.
+
+- `rfc7807_exception_handler` in `common/exceptions.py`:
+
+  - wraps DRF errors into **RFC7807 Problem Details** responses,
+  - logs handled and unhandled errors via the `app.error` logger.
+
+---
+
+## 🧱 Tech Stack
+
+| Layer             | Technology          |
+|-------------------|----------------------|
+| Backend           | Django 5 + DRF       |
+| Authentication    | SimpleJWT            |
+| Database          | PostgreSQL           |
+| Cache / Queue     | Redis                |
+| Background Tasks  | Celery               |
+| API Documentation | drf-spectacular      |
+| Logging           | JSON + Request ID    |
+| Containerization  | Docker / Compose     |
+
+---
+
+## 🚀 Local Development (without Docker)
+
+> Useful if you just want to run the API quickly in dev mode.
+
+### 1. Virtual environment
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
+````
 
 ### 2. Install dependencies
 
@@ -98,38 +249,22 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Create `.env` file
+### 3. `.env` file in the project root
 
-Create a file `.env` in the **root directory**:
 
-```
-DJANGO_DEBUG=True
-DJANGO_SECRET_KEY=dev-secret-key
-ALLOWED_HOSTS=*
-POSTGRES_DB=eduflow
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_HOST=db
-POSTGRES_PORT=5432
-REDIS_URL=redis://redis:6379/1
-CELERY_BROKER_URL=redis://redis:6379/0
-CELERY_RESULT_BACKEND=redis://redis:6379/0
-ENABLE_CACHE=True
-```
-
-### 4. Run migrations
+### 4. Apply migrations
 
 ```bash
 python manage.py migrate
 ```
 
-### 5. (Optional) Create superuser
+### 5. Create superuser (optional)
 
 ```bash
 python manage.py createsuperuser
 ```
 
-### 6. Start server
+### 6. Run dev server
 
 ```bash
 python manage.py runserver
@@ -137,246 +272,144 @@ python manage.py runserver
 
 ---
 
-# 🐳 **Docker-Compose Setup**
+## 🐳 Running via Docker Compose
 
-> This runs **Postgres + Redis + Django + Celery worker**.
+> This setup runs **PostgreSQL + Redis + Django + Celery** together.
+
+Before running:
+
+* ensure local ports `5432` (Postgres) and `8000` (Django) are free;
+* if you have a local Postgres running, stop it or change ports in `docker-compose.yml`.
+
+### 1. Build and start containers
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 Services:
 
-| Service         | Purpose         |
-| --------------- | --------------- |
-| web             | Django API      |
-| db              | PostgreSQL      |
-| redis           | Cache + broker  |
-| worker          | Celery worker   |
-| beat (optional) | Scheduled tasks |
+| Service | Description            |
+| ------- | ---------------------- |
+| web     | Django API             |
+| db      | PostgreSQL             |
+| redis   | Redis (cache + broker) |
+| celery  | Celery worker          |
 
----
-
-# 📡 **API Endpoints**
-
-### 🔑 Auth
-
-* `POST /api/v1/auth/register/`
-* `POST /api/v1/auth/login/`
-* `POST /api/v1/auth/refresh/`
-* `GET /api/v1/auth/me/`
-
-### 📚 Courses
-
-* `GET /api/v1/courses/` — list (cached)
-* `POST /api/v1/courses/` — create (admin/instructor)
-* `GET /api/v1/courses/<id>/` — retrieve (cached)
-* `PUT/PATCH /api/v1/courses/<id>/`
-* `DELETE /api/v1/courses/<id>/`
-
-### 📖 Lessons
-
-* `POST /api/v1/lessons/` — owner/admin
-* `GET /api/v1/lessons/`
-* `PUT/PATCH/DELETE /api/v1/lessons/<id>/`
-
-### 🎓 Enrollments
-
-* `POST /api/v1/enrollments/`
-* `GET /api/v1/enrollments/`
-* `DELETE /api/v1/enrollments/<id>/`
-
----
-
-# 🧪 **Smoke Test cURL Examples**
-
-### Login
+### 2. Run migrations inside the container
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/auth/login/ \
-  -H "Content-Type: application/json" \
-  -d '{"username": "test", "password": "testpass"}'
+docker compose exec web python manage.py migrate
 ```
 
-### Create course (Instructor)
+### 3. Create superuser
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/v1/courses/ \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Django Pro", "price": 0, "description":"course"}'
+docker compose exec web python manage.py createsuperuser
 ```
 
-### Enroll (Student)
+### 4. Check everything is up
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/enrollments/ \
-  -H "Authorization: Bearer <TOKEN>" \
-  -d '{"course": 1}'
-```
+API:
 
----
+* `http://localhost:8000/api/v1/courses-public/`
+* `http://localhost:8000/api/v1/courses/`
 
-# 🗂 **Architecture Diagram (ASCII)**
+Swagger UI:
 
-```
-                ┌───────────────────────┐
-                │        Client         │
-                │  web / mobile / api  │
-                └──────────┬────────────┘
-                           │ HTTP
-                           ▼
-                   ┌───────────────┐
-                   │    Django     │
-                   │  DRF API App  │
-                   └───────┬───────┘
-                           │
-                           │ ORM
-                           ▼
-                  ┌───────────────────┐
-                  │    PostgreSQL     │
-                  └───────────────────┘
+* `http://localhost:8000/api/docs/`
 
-                           ▲
-                           │ Cache / Broker
-                           ▼
-                ┌───────────────────────┐
-                │        Redis          │
-                │ cache + celery broker │
-                └──────────┬────────────┘
-                           │
-                           ▼
-                  ┌───────────────────┐
-                  │    Celery Worker  │
-                  │ email / reports   │
-                  └───────────────────┘
+OpenAPI schema:
+
+* `http://localhost:8000/api/schema/`
+
+In the `celery` container logs you should see something like:
+
+```text
+[INFO/MainProcess] celery@<hostname> ready.
 ```
 
 ---
 
-# 🧩 **Highload Features**
+## 📡 Main Endpoints (Summary)
 
-### ✔ Redis Caching
+### 🔑 Auth (`/api/v1/auth/`)
 
-* Cache layer for:
-
-  * GET /courses/
-  * GET /courses/<id>/
-* Low-level caching for detail views
-* Cache invalidation on update/delete
-
-### ✔ Celery Background Tasks
-
-Examples:
-
-* Send enrollment confirmation email
-* Clean abandoned enrollments
-* Generate daily activity report
-
-### ✔ Idempotency (SETNX)
-
-Tasks include:
-
-* idempotent locks
-* prevent duplicates on retries
-
-### ✔ JSON Structured Logs
-
-* request_id injected at middleware
-* access/error logs separated
-* latency (duration_ms) tracked
+* `POST /register/` — register a new user.
+* `POST /login/` — obtain access/refresh tokens.
+* `POST /refresh/` — refresh access token.
+* `GET  /me/` — get current user profile.
 
 ---
 
-# 📚 **Theory Answers (For Defense)**
+### 📚 Courses (`/api/v1/`)
 
-## **1. SQL vs NoSQL**
-
-SQL:
-
-* strict schema
-* ACID transactions
-* good for complex relations (joins)
-
-NoSQL:
-
-* horizontal scaling
-* flexible schema
-* eventually-consistent reads
-
-Effect on CRUD:
-
-* SQL → predictable API validation
-* NoSQL → more defensive validation required
+* `GET  /courses-public/` — public course list (read-only, cacheable).
+* `GET  /courses/` — main course list (role-based + publish status).
+* `POST /courses/` — create a new course (`admin`, `instructor`).
+* `GET  /courses/<id>/` — get course details (cached for 5 minutes).
+* `PUT/PATCH /courses/<id>/` — update a course.
+* `DELETE /courses/<id>/` — delete a course.
 
 ---
 
-## **2. Mass Update Problems**
+### 📖 Lessons (`/api/v1/lessons/`)
 
-* long-running transactions
-* locks / table locks
-* partial failures
-* huge load on DB I/O
-
----
-
-## **3. HTTP Method Semantics**
-
-* GET is cacheable & idempotent
-* POST is not idempotent
-* PUT/PATCH — idempotent update
-* Correct methods = predictable behavior
+* `GET  /lessons/` — list lessons.
+* `POST /lessons/` — create a lesson (course owner or `admin`).
+* `PUT/PATCH/DELETE /lessons/<id>/` — manage a lesson.
 
 ---
 
-## **4. JWT Storage Risks**
+### 🎓 Enrollments (`/api/v1/enrollments/`)
 
-* localStorage vulnerable to XSS
-* token leaks -> full account takeover
-* refresh token rotation solves many issues
-
----
-
-## **5. TTL vs UX**
-
-* Short TTL → secure, but users re-login often
-* Long TTL → smooth UX but higher security risk
+* `GET  /enrollments/` — student’s own enrollments / all enrollments (for instructor/admin).
+* `POST /enrollments/` — enroll into a course (only `student`).
+* `DELETE /enrollments/<id>/` — delete an enrollment (student-owner or `admin`).
 
 ---
 
-## **6. Logging for Incident Analysis**
+## 🧠 Architecture (Short Overview)
 
-* request_id → reconstruct timeline
-* structured logs → easy to search/grep
-* correlate errors with user actions
-
----
-
-## **7. Horizontal vs Vertical Scaling**
-
-Vertical:
-
-* add more CPU/RAM
-  Horizontal:
-* add more instances
-* requires cache + distributed locks
+```text
+Client (web / mobile / API client)
+        │ HTTP (JWT)
+        ▼
+Django + DRF (EduFlow API)
+        │
+        ├─ PostgreSQL (users, courses, lessons, enrollments)
+        │
+        ├─ Redis (cache for popular read requests + Celery message broker)
+        │
+        └─ Celery worker (background jobs: emails, reports, cleanup)
+```
 
 ---
 
-## **8. Message Queue Failures**
+## ✅ Mapping to Course Requirements
 
-If Redis/RabbitMQ goes down:
+**Task 1 — CRUD + Validation**
 
-* tasks delayed
-* lost tasks (if not durable)
-* duplicate processing on retry
+* CRUD for `User`, `Course`, `Lesson`, `Enrollment`.
+* Responses in JSON with proper HTTP status codes.
+* Validation for email/username/password.
 
----
+**Task 2 — Security & Access Control**
 
-## **9. Idempotent Tasks**
+* JWT auth via SimpleJWT.
+* Roles: `admin / instructor / student`.
+* Role-based access checks in viewsets.
+* Structured logging (access + error) in JSON.
 
-Must be safe to run twice:
+**Task 3 — Performance & Background Tasks**
 
-* SETNX lock keys
-* check-if-already-processed flags
+* Redis cache on courses.
+* Cache invalidation when data changes.
+* Celery background tasks + idempotency via Redis flags.
+
+**Task 4 — Documentation**
+
+* README with local + Docker setup instructions.
+* Summary of main endpoints.
+* Swagger documentation at `/api/docs/` and `/api/schema/`.
 
